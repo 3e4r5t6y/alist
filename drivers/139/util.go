@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"regexp"
 
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/internal/model"
@@ -290,8 +291,8 @@ func (d *Yun139) familyGetLink(contentId string, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return jsoniter.Get(res, "data", "downloadURL").ToString(), nil
-	
+	downloadURL := jsoniter.Get(res, "data", "downloadURL").ToString()
+
     // 创建正则表达式
     re := regexp.MustCompile(`downloadServlet`)
 
