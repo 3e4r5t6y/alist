@@ -401,246 +401,216 @@ func getPartSize(size int64) int64 {
 }
 
 func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStreamer, up driver.UpdateProgress) error {
-	switch d.Addition.Type {
-	case MetaPersonalNew:
-		var err error
-		fullHash := stream.GetHash().GetHash(utils.SHA256)
-		if len(fullHash) <= 0 {
-			tmpF, err := stream.CacheFullInTempFile()
-			if err != nil {
-				return err
-			}
-			fullHash, err = utils.HashFile(utils.SHA256, tmpF)
-			if err != nil {
-				return err
-			}
-		}
+    switch d.Addition.Type {
+    case MetaPersonalNew:
+        var err error
+        fullHash := stream.GetHash().GetHash(utils.SHA256)
+        if len(fullHash) <= 0 {
+            tmpF, err := stream.CacheFullInTempFile()
+            if err != nil {
+                return err
+            }
+            fullHash, err = utils.HashFile(utils.SHA256, tmpF)
+            if err != nil {
+                return err
+            }
+        }
 
-		partInfos := []PartInfo{}
-		var partSize = getPartSize(stream.GetSize())
-		part := (stream.GetSize() + partSize - 1) / partSize
-		if part == 0 {
-			part = 1
-		}
-		for i := int64(0); i < part; i++ {
-			if utils.IsCanceled(ctx) {
-				return ctx.Err()
-			}
-			start := i * partSize
-			byteSize := stream.GetSize() - start
-			if byteSize > partSize {
-				byteSize = partSize
-			}
-			partNumber := i + 1
-			partInfo := PartInfo{
-				PartNumber: partNumber,
-				PartSize:   byteSize,
-				ParallelHashCtx: ParallelHashCtx{
-					PartOffset: start + byteSize - 1,
-				},
-			}
-			partInfos = append(partInfos, partInfo)
-		}
+        partInfos := []PartInfo{}
+        var partSize = getPartSize(stream.GetSize())
+        part := (stream.GetSize() + partSize - 1) / partSize
+        if part == 0 {
+            part = 1
+        }
 
+        // 建立分片信息
+        for i := int64(0); i < part; i++ {
+            if utils.IsCanceled(ctx) {
+                return ctx.Err()
+            }
 
-		// return errs.NotImplement
-		data := base.Json{
-			"contentHash":          fullHash,
-			"contentHashAlgorithm": "SHA256",
-			"contentType":          "application/octet-stream",
-			"parallelUpload":       false,
-/*			"partInfos": []base.Json{{
-				"parallelHashCtx": base.Json{
-					"partOffset": 0,
-				},
-				"partNumber": 1,
-				"partSize":   stream.GetSize(),
-			}},
-			"size":           stream.GetSize(),
-			"parentFileId":   dstDir.GetID(),
-			"name":           stream.GetName(),
-			"type":           "file",
-			"fileRenameMode": "auto_rename",*/
-			"partInfos":            partInfos,
-			"size":                 stream.GetSize(),
-			"parentFileId":         dstDir.GetID(),
-			"name":                 stream.GetName(),
-			"type":                 "file",
-			"fileRenameMode":       "auto_rename",
-		}
-		pathname := "/hcy/file/create"
-		var resp PersonalUploadResp
-		_, err = d.personalPost(pathname, data, &resp)
-		if err != nil {
-			return err
-		}
+            start := i * partSize
+            byteSize := stream.GetSize() - start
+            if byteSize > partSize {
+                byteSize = partSize
+            }
 
-		if resp.Data.Exist || resp.Data.RapidUpload {
-			return nil
-		}
+            partInfo := PartInfo{
+                PartNumber: i + 1, // 从1开始计数
+                PartSize:   byteSize,
+                ParallelHashCtx: ParallelHashCtx{
+                    PartOffset: start + byteSize - 1,
+                },
+            }
+            partInfos = append(partInfos, partInfo)
+        }
 
-		// Progress
-		p := driver.NewProgress(stream.GetSize(), up)
+        data := base.Json{ // 定义请求体
+            "contentHash":          fullHash,
+            "contentHashAlgorithm": "SHA256",
+            "contentType":          "application/octet-stream",
+            "parallelUpload":       false,
+            "partInfos":            partInfos,
+            "size":                 stream.GetSize(),
+            "parentFileId":         dstDir.GetID(),
+            "name":                 stream.GetName(),
+            "type":                 "file",
+            "fileRenameMode":       "auto_rename",
+        }
+        pathname := "/hcy/file/create"
+        var resp PersonalUploadResp
+        _, err = d.personalPost(pathname, data, &resp)
+        if err != nil {
+            return err
+        }
 
-		// Update Progress
-		//r := io.TeeReader(stream, p)
+        // 处理已存在或快速上传的情况
+        if resp.Data.Exist || resp.Data.RapidUpload {
+            return nil
+        }
 
-		/*req, err := http.NewRequest("PUT", resp.Data.PartInfos[0].UploadUrl, r)
-		if err != nil {
-			return err
-		}
-		req = req.WithContext(ctx)
-		req.Header.Set("Content-Type", "application/octet-stream")
-		req.Header.Set("Content-Length", fmt.Sprint(stream.GetSize()))
-		req.Header.Set("Origin", "https://yun.139.com")
-		req.Header.Set("Referer", "https://yun.139.com/")
-		req.ContentLength = stream.GetSize()
+        // 进度跟踪
+        p := driver.NewProgress(stream.GetSize(), up)
 
-		res, err := base.HttpClient.Do(req)
-		if err != nil {
-			return err
-		}*/
+        // 上传分片
+        for index, partInfo := range resp.Data.PartInfos {
+            int64Index := int64(index)
+            start := int64Index * partSize
+            byteSize := stream.GetSize() - start
+            if byteSize > partSize {
+                byteSize = partSize
+            }
 
-		for index, partInfo := range resp.Data.PartInfos {
-			int64Index := int64(index)
-			start := int64Index * partSize
-			byteSize := stream.GetSize() - start
-			if byteSize > partSize {
-				byteSize = partSize
-			}
-			limitReader := io.LimitReader(stream, byteSize)
-			// Update Progress
-			r := io.TeeReader(limitReader, p)
-			req, err := http.NewRequest("PUT", partInfo.UploadUrl, r)
-			if err != nil {
-				return err
-			}
-			req = req.WithContext(ctx)
-			req.Header.Set("Content-Type", "application/octet-stream")
-			req.Header.Set("Content-Length", fmt.Sprint(stream.GetSize()))
-			req.Header.Set("Origin", "https://yun.139.com")
-			req.Header.Set("Referer", "https://yun.139.com/")
-			req.ContentLength = stream.GetSize()
-			res, err := base.HttpClient.Do(req)
-			if err != nil {
-				return err
-			}
-			_ = res.Body.Close()
-			log.Debugf("%+v", res)
-			if res.StatusCode != http.StatusOK {
-				return fmt.Errorf("unexpected status code: %d", res.StatusCode)
-			}
+            limitReader := io.LimitReader(stream, byteSize) // 限制读取的字节
+            // 更新进度
+            r := io.TeeReader(limitReader, p)
+            req, err := http.NewRequest("PUT", partInfo.UploadUrl, r)
+            if err != nil {
+                return err
+            }
+            req = req.WithContext(ctx)
+            req.Header.Set("Content-Type", "application/octet-stream")
+            req.Header.Set("Content-Length", fmt.Sprint(byteSize)) // 确保Content-Length反映分片大小
+            req.Header.Set("Origin", "https://yun.139.com")
+            req.Header.Set("Referer", "https://yun.139.com/")
+            req.ContentLength = byteSize
 
-		/*_ = res.Body.Close()
-		log.Debugf("%+v", res)
-		if res.StatusCode != http.StatusOK {
-			return fmt.Errorf("unexpected status code: %d", res.StatusCode)*/
-		}
+            res, err := base.HttpClient.Do(req)
+            if err != nil {
+                return err
+            }
+            defer res.Body.Close() // 确保在函数退出时关闭响应体
 
-		data = base.Json{
-			"contentHash":          fullHash,
-			"contentHashAlgorithm": "SHA256",
-			"fileId":               resp.Data.FileId,
-			"uploadId":             resp.Data.UploadId,
-		}
-		_, err = d.personalPost("/hcy/file/complete", data, nil)
-		if err != nil {
-			return err
-		}
-		return nil
-	case MetaPersonal:
-		fallthrough
-	case MetaFamily:
-		data := base.Json{
-			"manualRename": 2,
-			"operation":    0,
-			"fileCount":    1,
-			"totalSize":    0, // 去除上传大小限制
-			"uploadContentList": []base.Json{{
-				"contentName": stream.GetName(),
-				"contentSize": 0, // 去除上传大小限制
-				// "digest": "5a3231986ce7a6b46e408612d385bafa"
-			}},
-			"parentCatalogID": dstDir.GetID(),
-			"newCatalogName":  "",
-			"commonAccountInfo": base.Json{
-				"account":     d.Account,
-				"accountType": 1,
-			},
-		}
-		pathname := "/orchestration/personalCloud/uploadAndDownload/v1.0/pcUploadFileRequest"
-		if d.isFamily() {
-			data = d.newJson(base.Json{
-				"fileCount":    1,
-				"manualRename": 2,
-				"operation":    0,
-				"path":         path.Join(dstDir.GetPath(), dstDir.GetID()),
-				"seqNo":        random.String(32), //序列号不能为空
-				"totalSize":    0,
-				"uploadContentList": []base.Json{{
-					"contentName": stream.GetName(),
-					"contentSize": 0,
-					// "digest": "5a3231986ce7a6b46e408612d385bafa"
-				}},
-			})
-			pathname = "/orchestration/familyCloud-rebuild/content/v1.0/getFileUploadURL"
-		}
-		var resp UploadResp
-		_, err := d.post(pathname, data, &resp)
-		if err != nil {
-			return err
-		}
+            log.Debugf("Upload response: %+v", res)
+            if res.StatusCode != http.StatusOK {
+                body, _ := io.ReadAll(res.Body) // 获取响应体以帮助调试
+                return fmt.Errorf("unexpected status code: %d, response: %s", res.StatusCode, body)
+            }
+        }
 
-		// Progress
-		p := driver.NewProgress(stream.GetSize(), up)
+        // 完成上传
+        data = base.Json{
+            "contentHash":          fullHash,
+            "contentHashAlgorithm": "SHA256",
+            "fileId":               resp.Data.FileId,
+            "uploadId":             resp.Data.UploadId,
+        }
+        _, err = d.personalPost("/hcy/file/complete", data, nil)
+        if err != nil {
+            return err
+        }
+        return nil
 
-		var partSize = getPartSize(stream.GetSize())
-		part := (stream.GetSize() + partSize - 1) / partSize
-		if part == 0 {
-			part = 1
-		}
-		for i := int64(0); i < part; i++ {
-			if utils.IsCanceled(ctx) {
-				return ctx.Err()
-			}
+    case MetaPersonal:
+        fallthrough
+    case MetaFamily:
+        // 这里依然保持原来的逻辑
+        data := base.Json{
+            "manualRename": 2,
+            "operation":    0,
+            "fileCount":    1,
+            "totalSize":    0, 
+            "uploadContentList": []base.Json{{
+                "contentName": stream.GetName(),
+                "contentSize": 0, 
+            }},
+            "parentCatalogID": dstDir.GetID(),
+            "newCatalogName":  "",
+            "commonAccountInfo": base.Json{
+                "account":     d.Account,
+                "accountType": 1,
+            },
+        }
+        pathname := "/orchestration/personalCloud/uploadAndDownload/v1.0/pcUploadFileRequest"
+        if d.isFamily() {
+            data = d.newJson(base.Json{
+                "fileCount":    1,
+                "manualRename": 2,
+                "operation":    0,
+                "path":         path.Join(dstDir.GetPath(), dstDir.GetID()),
+                "seqNo":        random.String(32), 
+                "totalSize":    0,
+                "uploadContentList": []base.Json{{
+                    "contentName": stream.GetName(),
+                    "contentSize": 0,
+                }},
+            })
+            pathname = "/orchestration/familyCloud-rebuild/content/v1.0/getFileUploadURL"
+        }
+        var resp UploadResp
+        _, err := d.post(pathname, data, &resp)
+        if err != nil {
+            return err
+        }
 
-			start := i * partSize
-			byteSize := stream.GetSize() - start
-			if byteSize > partSize {
-				byteSize = partSize
-			}
+        // 进度跟踪
+        p := driver.NewProgress(stream.GetSize(), up)
 
-			limitReader := io.LimitReader(stream, byteSize)
-			// Update Progress
-			r := io.TeeReader(limitReader, p)
-			req, err := http.NewRequest("POST", resp.Data.UploadResult.RedirectionURL, r)
-			if err != nil {
-				return err
-			}
+        var partSize = getPartSize(stream.GetSize())
+        part := (stream.GetSize() + partSize - 1) / partSize
+        for i := int64(0); i < part; i++ {
+            if utils.IsCanceled(ctx) {
+                return ctx.Err()
+            }
 
-			req = req.WithContext(ctx)
-			req.Header.Set("Content-Type", "text/plain;name="+unicode(stream.GetName()))
-			req.Header.Set("contentSize", strconv.FormatInt(stream.GetSize(), 10))
-			req.Header.Set("range", fmt.Sprintf("bytes=%d-%d", start, start+byteSize-1))
-			req.Header.Set("uploadtaskID", resp.Data.UploadResult.UploadTaskID)
-			req.Header.Set("rangeType", "0")
-			req.ContentLength = byteSize
+            start := i * partSize
+            byteSize := stream.GetSize() - start
+            if byteSize > partSize {
+                byteSize = partSize
+            }
 
-			res, err := base.HttpClient.Do(req)
-			if err != nil {
-				return err
-			}
-			_ = res.Body.Close()
-			log.Debugf("%+v", res)
-			if res.StatusCode != http.StatusOK {
-				return fmt.Errorf("unexpected status code: %d", res.StatusCode)
-			}
-		}
+            limitReader := io.LimitReader(stream, byteSize)
+            r := io.TeeReader(limitReader, p)
+            req, err := http.NewRequest("POST", resp.Data.UploadResult.RedirectionURL, r)
+            if err != nil {
+                return err
+            }
 
-		return nil
-	default:
-		return errs.NotImplement
-	}
+            req = req.WithContext(ctx)
+            req.Header.Set("Content-Type", "text/plain;name="+unicode(stream.GetName()))
+            req.Header.Set("contentSize", strconv.FormatInt(stream.GetSize(), 10))
+            req.Header.Set("range", fmt.Sprintf("bytes=%d-%d", start, start+byteSize-1))
+            req.Header.Set("uploadtaskID", resp.Data.UploadResult.UploadTaskID)
+            req.Header.Set("rangeType", "0")
+            req.ContentLength = byteSize
+
+            res, err := base.HttpClient.Do(req)
+            if err != nil {
+                return err
+            }
+            defer res.Body.Close() // 确保在函数退出时关闭响应体
+            
+            log.Debugf("Upload response: %+v", res)
+            if res.StatusCode != http.StatusOK {
+                body, _ := io.ReadAll(res.Body) 
+                return fmt.Errorf("unexpected status code: %d, response: %s", res.StatusCode, body)
+            }
+        }
+
+        return nil
+    default:
+        return errs.NotImplement
+    }
 }
 
 func (d *Yun139) Other(ctx context.Context, args model.OtherArgs) (interface{}, error) {
