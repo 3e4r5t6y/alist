@@ -415,13 +415,41 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 				return err
 			}
 		}
+
+		partInfos := []PartInfo{}
+		var partSize = getPartSize(stream.GetSize())
+		part := (stream.GetSize() + partSize - 1) / partSize
+		if part == 0 {
+			part = 1
+		}
+		for i := int64(0); i < part; i++ {
+			if utils.IsCanceled(ctx) {
+				return ctx.Err()
+			}
+			start := i * partSize
+			byteSize := stream.GetSize() - start
+			if byteSize > partSize {
+				byteSize = partSize
+			}
+			partNumber := i + 1
+			partInfo := PartInfo{
+				PartNumber: partNumber,
+				PartSize:   byteSize,
+				ParallelHashCtx: ParallelHashCtx{
+					PartOffset: start + byteSize - 1,
+				},
+			}
+			partInfos = append(partInfos, partInfo)
+		}
+
+
 		// return errs.NotImplement
 		data := base.Json{
 			"contentHash":          fullHash,
 			"contentHashAlgorithm": "SHA256",
 			"contentType":          "application/octet-stream",
 			"parallelUpload":       false,
-			"partInfos": []base.Json{{
+/*			"partInfos": []base.Json{{
 				"parallelHashCtx": base.Json{
 					"partOffset": 0,
 				},
@@ -432,7 +460,13 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 			"parentFileId":   dstDir.GetID(),
 			"name":           stream.GetName(),
 			"type":           "file",
-			"fileRenameMode": "auto_rename",
+			"fileRenameMode": "auto_rename",*/
+			"partInfos":            partInfos,
+			"size":                 stream.GetSize(),
+			"parentFileId":         dstDir.GetID(),
+			"name":                 stream.GetName(),
+			"type":                 "file",
+			"fileRenameMode":       "auto_rename",
 		}
 		pathname := "/hcy/file/create"
 		var resp PersonalUploadResp
@@ -449,9 +483,9 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		p := driver.NewProgress(stream.GetSize(), up)
 
 		// Update Progress
-		r := io.TeeReader(stream, p)
+		//r := io.TeeReader(stream, p)
 
-		req, err := http.NewRequest("PUT", resp.Data.PartInfos[0].UploadUrl, r)
+		/*req, err := http.NewRequest("PUT", resp.Data.PartInfos[0].UploadUrl, r)
 		if err != nil {
 			return err
 		}
@@ -465,12 +499,42 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		res, err := base.HttpClient.Do(req)
 		if err != nil {
 			return err
-		}
+		}*/
 
-		_ = res.Body.Close()
+		for index, partInfo := range resp.Data.PartInfos {
+			int64Index := int64(index)
+			start := int64Index * partSize
+			byteSize := stream.GetSize() - start
+			if byteSize > partSize {
+				byteSize = partSize
+			}
+			limitReader := io.LimitReader(stream, byteSize)
+			// Update Progress
+			r := io.TeeReader(limitReader, p)
+			req, err := http.NewRequest("PUT", partInfo.UploadUrl, r)
+			if err != nil {
+				return err
+			}
+			req = req.WithContext(ctx)
+			req.Header.Set("Content-Type", "application/octet-stream")
+			req.Header.Set("Content-Length", fmt.Sprint(stream.GetSize()))
+			req.Header.Set("Origin", "https://yun.139.com")
+			req.Header.Set("Referer", "https://yun.139.com/")
+			req.ContentLength = stream.GetSize()
+			res, err := base.HttpClient.Do(req)
+			if err != nil {
+				return err
+			}
+			_ = res.Body.Close()
+			log.Debugf("%+v", res)
+			if res.StatusCode != http.StatusOK {
+				return fmt.Errorf("unexpected status code: %d", res.StatusCode)
+			}
+
+		/*_ = res.Body.Close()
 		log.Debugf("%+v", res)
 		if res.StatusCode != http.StatusOK {
-			return fmt.Errorf("unexpected status code: %d", res.StatusCode)
+			return fmt.Errorf("unexpected status code: %d", res.StatusCode)*/
 		}
 
 		data = base.Json{

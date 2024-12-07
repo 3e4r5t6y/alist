@@ -196,6 +196,15 @@ type QueryContentListResp struct {
 	} `json:"data"`
 }
 
+type PartInfo struct {
+	PartNumber      int64           `json:"partNumber"`
+	PartSize        int64           `json:"partSize"`
+	ParallelHashCtx ParallelHashCtx `json:"parallelHashCtx"`
+}
+type ParallelHashCtx struct {
+	PartOffset int64 `json:"partOffset"`
+}
+
 type PersonalThumbnail struct {
 	Style string `json:"style"`
 	Url   string `json:"url"`
@@ -235,11 +244,19 @@ type PersonalUploadResp struct {
 	}
 }
 
-type RefreshTokenResp struct {
+/*type RefreshTokenResp struct {
 	XMLName     xml.Name   `xml:"root"`
 	Return      string     `xml:"return"`
 	Token       string     `xml:"token"`
 	Expiretime  int32      `xml:"expiretime"`
 	AccessToken string     `xml:"accessToken"`
 	Desc        string     `xml:"desc"`
+}*/
+type RefreshTokenResp struct {
+	XMLName     xml.Name `xml:"root"`
+	Return      string   `xml:"return"`
+	Token       string   `xml:"token"`
+	Expiretime  int32    `xml:"expiretime"`
+	AccessToken string   `xml:"accessToken"`
+	Desc        string   `xml:"desc"`
 }
