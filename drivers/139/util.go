@@ -116,104 +116,52 @@ func (d *Yun139) request(pathname string, method string, callback base.ReqCallba
 		"x-m4c-src":           "10002",
 		"x-SvcType":           svcType,
 	})
+}
 
-	func (d *Yun139) request(pathname string, method string, callback base.ReqCallback, resp interface{}) ([]byte, error) {
-		url := "https://yun.139.com" + pathname
-		req := base.RestyClient.R()
-		randStr := random.String(16)
-		ts := time.Now().Format("2006-01-02 15:04:05")
-		if callback != nil {
-			callback(req)
-		}
-		body, err := utils.Json.Marshal(req.Body)
+func (d *Yun139) fmrequest(pathname string, method string, callback base.ReqCallback, resp interface{}) ([]byte, error) {
+	url := "https://group.yun.139.com" + pathname
+	req := base.RestyClient.R()
+	if callback != nil {
+		callback(req)
+	}
+	req.SetHeaders(map[string]string{
+		"Accept": "text/html, image/gif, image/jpeg, *; q=.2, */*; q=.2",
+		"Host": "group.yun.139.com:443",
+		"Connection": "keep-alive",
+		"Content-Type": "application/json;charset=utf-8",
+		"Authorization":  "Basic " + d.Authorization,
+		"x-DeviceInfo":        "||11|8.1.4.20241024|PC|UEMtMjAyMzA2MTdHWUtR|A075E1F59F3426278E8607C6093B44A2|| Windows 10 (10.0)|1920X1040|Q2hpbmVzZSAoU2ltcGxpZmllZCk=|||",
+		"x-huawei-channelSrc": "10200153",
+		"x-yun-svc-type":        "2",
+		"x-MM-Source": "000",
+	})
+	type Result struct {
+		ResultCode string `json:"resultCode"`
+		ResultDesc string `json:"resultDesc"`
+	}
+	
+	type BaseResp struct {
+		Result Result `json:"result"`
+	}
+	var e BaseResp
+	req.SetResult(&e)
+	res, err := req.Execute(method, url)
+	log.Debugln(res.String())
+	
+	// 检查 resultDesc 是否为 "SUCCESS"
+	if e.Result.ResultDesc != "SUCCESS" {
+		return nil, errors.New(e.Result.ResultDesc) // 返回具体的错误信息
+	}
+	
+	// 解析响应数据
+	if resp != nil {
+		err = utils.Json.Unmarshal(res.Body(), resp)
 		if err != nil {
 			return nil, err
 		}
-		sign := calSign(string(body), ts, randStr)
-		svcType := "1"
-		if d.isFamily() {
-			svcType = "2"
-		}
-		req.SetHeaders(map[string]string{
-			"Accept":         "application/json, text/plain, */*",
-			"CMS-DEVICE":     "default",
-			"Authorization":  "Basic " + d.Authorization,
-			"mcloud-channel": "1000101",
-			"mcloud-client":  "10701",
-			//"mcloud-route": "001",
-			"mcloud-sign": fmt.Sprintf("%s,%s,%s", ts, randStr, sign),
-			//"mcloud-skey":"",
-			"mcloud-version":      "6.6.0",
-			"Origin":              "https://yun.139.com",
-			"Referer":             "https://yun.139.com/w/",
-			"x-DeviceInfo":        "||9|6.6.0|chrome|95.0.4638.69|uwIy75obnsRPIwlJSd7D9GhUvFwG96ce||macos 10.15.2||zh-CN|||",
-			"x-huawei-channelSrc": "10000034",
-			"x-inner-ntwk":        "2",
-			"x-m4c-caller":        "PC",
-			"x-m4c-src":           "10002",
-			"x-SvcType":           svcType,
-		})
-	
-		var e BaseResp
-		req.SetResult(&e)
-		res, err := req.Execute(method, url)
-		log.Debugln(res.String())
-		if !e.Success {
-			return nil, errors.New(e.Message)
-		}
-		if resp != nil {
-			err = utils.Json.Unmarshal(res.Body(), resp)
-			if err != nil {
-				return nil, err
-			}
-		}
-		return res.Body(), nil
 	}
-
-	func (d *Yun139) fmrequest(pathname string, method string, callback base.ReqCallback, resp interface{}) ([]byte, error) {
-		url := "https://group.yun.139.com" + pathname
-		req := base.RestyClient.R()
-		if callback != nil {
-			callback(req)
-		}
-		req.SetHeaders(map[string]string{
-			"Accept": "text/html, image/gif, image/jpeg, *; q=.2, */*; q=.2",
-			"Host": "group.yun.139.com:443",
-			"Connection": "keep-alive",
-			"Content-Type": "application/json;charset=utf-8",
-			"Authorization":  "Basic " + d.Authorization,
-			"x-DeviceInfo":        "||11|8.1.4.20241024|PC|UEMtMjAyMzA2MTdHWUtR|A075E1F59F3426278E8607C6093B44A2|| Windows 10 (10.0)|1920X1040|Q2hpbmVzZSAoU2ltcGxpZmllZCk=|||",
-			"x-huawei-channelSrc": "10200153",
-			"x-yun-svc-type":        "2",
-			"x-MM-Source": "000",
-		})
-		type Result struct {
-			ResultCode string `json:"resultCode"`
-			ResultDesc string `json:"resultDesc"`
-		}
-		
-		type BaseResp struct {
-			Result Result `json:"result"`
-		}
-		var e BaseResp
-		req.SetResult(&e)
-		res, err := req.Execute(method, url)
-		log.Debugln(res.String())
-		
-		// 检查 resultDesc 是否为 "SUCCESS"
-		if e.Result.ResultDesc != "SUCCESS" {
-			return nil, errors.New(e.Result.ResultDesc) // 返回具体的错误信息
-		}
-		
-		// 解析响应数据
-		if resp != nil {
-			err = utils.Json.Unmarshal(res.Body(), resp)
-			if err != nil {
-				return nil, err
-			}
-		}
-		return res.Body(), nil
-	}
+	return res.Body(), nil
+}
 
 func (d *Yun139) post(pathname string, data interface{}, resp interface{}) ([]byte, error) {
 	return d.request(pathname, http.MethodPost, func(req *resty.Request) {
