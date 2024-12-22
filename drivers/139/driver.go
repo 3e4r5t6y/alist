@@ -252,7 +252,7 @@ func (d *Yun139) Rename(ctx context.Context, srcObj model.Obj, newName string) e
 	case MetaFamily:
 		var data base.Json
 		var pathname string
-		if srcObj.IsDir() {
+		//if srcObj.IsDir() {
 			// 网页接口不支持重命名家庭云文件夹
 			// data = base.Json{
 			// 	"catalogType": 3,
@@ -265,9 +265,9 @@ func (d *Yun139) Rename(ctx context.Context, srcObj model.Obj, newName string) e
 			// 	"path": srcObj.GetPath(),
 			// }
 			// pathname = "/orchestration/familyCloud-rebuild/photoContent/v1.0/modifyCatalogInfo"
-			return errs.NotImplement
-		} else {
-			data = base.Json{
+		//	return errs.NotImplement
+		//} else {
+			/*data = base.Json{
 				"contentID":   srcObj.GetID(),
 				"contentName": newName,
 				"commonAccountInfo": base.Json{
@@ -276,9 +276,22 @@ func (d *Yun139) Rename(ctx context.Context, srcObj model.Obj, newName string) e
 				},
 				"path": srcObj.GetPath(),
 			}
-			pathname = "/orchestration/familyCloud-rebuild/photoContent/v1.0/modifyContentInfo"
-		}
-		_, err = d.post(pathname, data, nil)
+			pathname = "/orchestration/familyCloud-rebuild/photoContent/v1.0/modifyContentInfo"*/
+			 data = base.Json{
+			 	"catalogType": 3,
+				"cloudID": d.CloudID,
+			 	"docLibraryID": srcObj.GetID(),
+			 	"docLibName": newName,
+				"manualRename": 0,
+			 	"commonAccountInfo": base.Json{
+			 		"account":     d.Account,
+			 		"accountType": 1,
+			 	},
+			 	"path": srcObj.GetPath(),
+			 }
+			 pathname = "/hcy/family/adapter/andAlbum/openApi/modifyCloudDocV2"
+		//}
+		_, err = d.fmpost(pathname, data, nil)
 	default:
 		err = errs.NotImplement
 	}
