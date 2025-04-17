@@ -2,12 +2,14 @@ package _139
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alist-org/alist/v3/drivers/base"
@@ -24,9 +26,10 @@ import (
 type Yun139 struct {
 	model.Storage
 	Addition
-	cron    *cron.Cron
-	Account string
-	ref     *Yun139
+	cron              *cron.Cron
+	Account           string
+	ref               *Yun139
+	PersonalCloudHost string
 }
 
 func (d *Yun139) Config() driver.Config {
@@ -71,28 +74,53 @@ func (d *Yun139) Init(ctx context.Context) error {
 	default:
 		return errs.NotImplement
 	}
-	// if d.ref != nil {
-	// 	return nil
-	// }
-	// decode, err := base64.StdEncoding.DecodeString(d.Authorization)
-	// if err != nil {
-	// 	return err
-	// }
-	// decodeStr := string(decode)
-	// splits := strings.Split(decodeStr, ":")
-	// if len(splits) < 2 {
-	// 	return fmt.Errorf("authorization is invalid, splits < 2")
-	// }
-	// d.Account = splits[1]
-	// _, err = d.post("/orchestration/personalCloud/user/v1.0/qryUserExternInfo", base.Json{
-	// 	"qryUserExternInfoReq": base.Json{
-	// 		"commonAccountInfo": base.Json{
-	// 			"account":     d.getAccount(),
-	// 			"accountType": 1,
-	// 		},
-	// 	},
-	// }, nil)
-	// return err
+	if d.ref != nil {
+		return nil
+	}
+	decode, err := base64.StdEncoding.DecodeString(d.Authorization)
+	if err != nil {
+		return err
+	}
+	decodeStr := string(decode)
+	splits := strings.Split(decodeStr, ":")
+	if len(splits) < 2 {
+		return fmt.Errorf("authorization is invalid, splits < 2")
+	}
+	d.Account = splits[1]
+	_, err = d.post("/orchestration/personalCloud/user/v1.0/qryUserExternInfo", base.Json{
+		"qryUserExternInfoReq": base.Json{
+			"commonAccountInfo": base.Json{
+				"account":     d.getAccount(),
+				"accountType": 1,
+			},
+		},
+	}, nil)
+	if err != nil {
+		return err
+	}
+
+	log.Info("Start query Route Policy")
+	var resp QueryRoutePolicyResp
+	_, err = d.requestRoute(base.Json{
+		"userInfo": base.Json{
+			"userType":    1,
+			"accountType": 1,
+			"accountName": d.getAccount()},
+		"modAddrType": 1,
+	}, &resp)
+
+	if err != nil {
+		return err
+	}
+	log.Info("Query route result completed successfully")
+
+	for _, policyItem := range resp.Data.RoutePolicyList {
+		if policyItem.ModName == "personal" {
+			d.PersonalCloudHost = policyItem.HttpsUrl
+			break
+		}
+	}
+
 	return nil
 }
 
@@ -160,7 +188,7 @@ func (d *Yun139) MakeDir(ctx context.Context, parentDir model.Obj, dirName strin
 			"type":           "folder",
 			"fileRenameMode": "force_rename",
 		}
-		pathname := "/hcy/file/create"
+		pathname := "/file/create"
 		_, err = d.personalPost(pathname, data, nil)
 	case MetaPersonal:
 		data := base.Json{
@@ -213,7 +241,7 @@ func (d *Yun139) Move(ctx context.Context, srcObj, dstDir model.Obj) (model.Obj,
 			"fileIds":        []string{srcObj.GetID()},
 			"toParentFileId": dstDir.GetID(),
 		}
-		pathname := "/hcy/file/batchMove"
+		pathname := "/file/batchMove"
 		_, err := d.personalPost(pathname, data, nil)
 		if err != nil {
 			return nil, err
@@ -290,7 +318,7 @@ func (d *Yun139) Rename(ctx context.Context, srcObj model.Obj, newName string) e
 			"name":        newName,
 			"description": "",
 		}
-		pathname := "/hcy/file/update"
+		pathname := "/file/update"
 		_, err = d.personalPost(pathname, data, nil)
 	case MetaPersonal:
 		var data base.Json
@@ -390,7 +418,7 @@ func (d *Yun139) Copy(ctx context.Context, srcObj, dstDir model.Obj) error {
 			"fileIds":        []string{srcObj.GetID()},
 			"toParentFileId": dstDir.GetID(),
 		}
-		pathname := "/hcy/file/batchCopy"
+		pathname := "/file/batchCopy"
 		_, err := d.personalPost(pathname, data, nil)
 		return err
 	case MetaPersonal:
@@ -430,7 +458,7 @@ func (d *Yun139) Remove(ctx context.Context, obj model.Obj) error {
 		data := base.Json{
 			"fileIds": []string{obj.GetID()},
 		}
-		pathname := "/hcy/recyclebin/batchTrash"
+		pathname := "/recyclebin/batchTrash"
 		_, err := d.personalPost(pathname, data, nil)
 		return err
 	case MetaGroup:
@@ -574,7 +602,7 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 			"type":                 "file",
 			"fileRenameMode":       "auto_rename",
 		}
-		pathname := "/hcy/file/create"
+		pathname := "/file/create"
 		var resp PersonalUploadResp
 		_, err = d.personalPost(pathname, data, &resp)
 		if err != nil {
@@ -611,7 +639,7 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 						"accountType": 1,
 					},
 				}
-				pathname := "/hcy/file/getUploadUrl"
+				pathname := "/file/getUploadUrl"
 				var moreresp PersonalUploadUrlResp
 				_, err = d.personalPost(pathname, moredata, &moreresp)
 				if err != nil {
@@ -662,7 +690,7 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 				"fileId":               resp.Data.FileId,
 				"uploadId":             resp.Data.UploadId,
 			}
-			_, err = d.personalPost("/hcy/file/complete", data, nil)
+			_, err = d.personalPost("/file/complete", data, nil)
 			if err != nil {
 				return err
 			}
@@ -854,7 +882,7 @@ func (d *Yun139) Other(ctx context.Context, args model.OtherArgs) (interface{}, 
 		}
 		switch args.Method {
 		case "video_preview":
-			uri = "/hcy/videoPreview/getPreviewInfo"
+			uri = "/videoPreview/getPreviewInfo"
 		default:
 			return nil, errs.NotSupport
 		}
