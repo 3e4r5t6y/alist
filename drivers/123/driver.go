@@ -2,10 +2,8 @@ package _123
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"net/http"
-	"net/url"
 	"sync"
 	"time"
 
@@ -61,6 +59,7 @@ func (d *Pan123) List(ctx context.Context, dir model.Obj, args model.ListArgs) (
 	})
 }
 
+/*
 func (d *Pan123) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
 	if f, ok := file.(File); ok {
 		//var resp DownResp
@@ -118,6 +117,30 @@ func (d *Pan123) Link(ctx context.Context, file model.Obj, args model.LinkArgs) 
 		}
 		link.Header = http.Header{
 			"Referer": []string{"https://www.123pan.com/"},
+		}
+		return &link, nil
+	} else {
+		return nil, fmt.Errorf("can't convert obj")
+	}
+}
+*/
+
+func (d *Pan123) Link(ctx context.Context, file model.Obj, args model.LinkArgs) (*model.Link, error) {
+	if f, ok := file.(File); ok {
+		downloadURL := fmt.Sprintf("https://www.123pan.com/api/file/download?file_id=%d", f.FileId)
+		resp, err := d.LinkRequest(downloadURL, http.MethodGet, nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		finalURL := utils.Json.Get(resp, "data", "url").ToString()
+		if finalURL == "" {
+			return nil, fmt.Errorf("failed to get download url from response")
+		}
+		link := model.Link{
+			URL: finalURL,
+			Header: http.Header{
+				"Referer": []string{"https://www.123pan.com/"},
+			},
 		}
 		return &link, nil
 	} else {
