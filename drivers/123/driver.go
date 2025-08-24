@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"sync"
 	"time"
-
+	"net/url"
 	"golang.org/x/time/rate"
 
 	"github.com/alist-org/alist/v3/drivers/base"
@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
+	
 )
 
 type Pan123 struct {
@@ -136,11 +137,25 @@ func (d *Pan123) Link(ctx context.Context, file model.Obj, args model.LinkArgs) 
 		if finalURL == "" {
 			return nil, fmt.Errorf("failed to get download url from response")
 		}
+
+		res, err := base.NoRedirectClient.R().SetHeader("Referer", "https://www.123pan.com/").Get(finalURL)
+		if err != nil {
+			return nil, err
+		}
+		log.Debug("download url check res: ", res.String())
+		
 		link := model.Link{
 			URL: finalURL,
-			Header: http.Header{
-				"Referer": []string{"https://www.123pan.com/"},
-			},
+		}
+		log.Debugln("res code: ", res.StatusCode())
+		if res.StatusCode() == 302 {
+			link.URL = res.Header().Get("location")
+		} else if res.StatusCode() < 300 {
+			link.URL = utils.Json.Get(res.Body(), "data", "redirect_url").ToString()
+		}
+
+		link.Header = http.Header{
+			"Referer": []string{"https://www.123pan.com/"},
 		}
 		return &link, nil
 	} else {
