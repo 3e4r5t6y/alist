@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"sync"
 	"time"
-	"net/url"
 	"golang.org/x/time/rate"
 
 	"github.com/alist-org/alist/v3/drivers/base"
