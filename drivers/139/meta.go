@@ -13,6 +13,7 @@ type Addition struct {
 	CloudID              string `json:"cloud_id"`
 	CustomUploadPartSize int64  `json:"custom_upload_part_size" type:"number" default:"0" help:"0 for auto"`
 	ReportRealSize       bool   `json:"report_real_size" type:"bool" default:"true" help:"Enable to report the real file size during upload"`
+	ReportSizeMB         int64  `json:"report_size_mb" type:"number" default:"0" help:"Report file size in MB (0 to use real size, only effective when ReportRealSize is false)"`
 }
 
 var config = driver.Config{

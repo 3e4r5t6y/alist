@@ -738,7 +738,11 @@ func (d *Yun139) Put(ctx context.Context, dstDir model.Obj, stream model.FileStr
 		if d.ReportRealSize {
 			reportSize = stream.GetSize()
 		} else {
-			reportSize = 0
+			if d.ReportSizeMB != 0 {
+				reportSize = d.ReportSizeMB * 1024 * 1024 // Convert MB to bytes
+			} else {
+				reportSize = 50 * 1024 * 1024 // Default to 50MB if ReportSizeMB is 0
+			}
 		}
 		data := base.Json{
 			"manualRename": 2,
