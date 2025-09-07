@@ -13,6 +13,8 @@ type Addition struct {
 	//OrderDirection string `json:"order_direction" type:"select" options:"asc,desc" default:"asc"`
 	UserAgent   string `json:"user_agent"  required:"false" default:"Mozilla/5.0 (iPad; CPU OS 11_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/11.0 Tablet/15E148 Safari/604.1"`
 	AccessToken string
+	EnableExternalLogin bool   `json:"enable_external_login" type:"bool" default:"false" help:"是否开启外部登录接口"`
+	ExternalLoginURL    string `json:"external_login_url" type:"string" required:"false" help:"外部登录接口地址 (例如: http://localhost:1123)"`
 }
 
 var config = driver.Config{

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"encoding/json"
 
 	"github.com/alist-org/alist/v3/drivers/base"
 	"github.com/alist-org/alist/v3/pkg/utils"
@@ -145,17 +146,59 @@ func GetApi(rawUrl string) string {
 //}
 
 func (d *Pan123) login() error {
+	// Check for external login interface
+	if d.Addition.EnableExternalLogin && d.Addition.ExternalLoginURL != "" {
+		log.Debugf("Attempting external login via: %s", d.Addition.ExternalLoginURL)
+		externalLoginBody := map[string]string{
+			"username": d.Addition.Username,
+			"password": d.Addition.Password,
+		}
+		
+		var externalLoginResp struct {
+			Success     bool   `json:"success"`
+			AccessToken string `json:"accessToken"`
+			Message     string `json:"message"`
+		}
+
+		// Use base.RestyClient for consistency with other requests
+		resp, err := base.RestyClient.R().
+			SetBody(externalLoginBody).
+			SetResult(&externalLoginResp).
+			Post(d.Addition.ExternalLoginURL + "/login") // Assuming the external endpoint is /login
+
+		if err != nil {
+			return fmt.Errorf("external login request failed: %w", err)
+		}
+
+		if resp.StatusCode() != http.StatusOK {
+			return fmt.Errorf("external login failed with status %d: %s", resp.StatusCode(), resp.String())
+		}
+
+		if !externalLoginResp.Success {
+			return fmt.Errorf("external login failed: %s", externalLoginResp.Message)
+		}
+
+		if externalLoginResp.AccessToken == "" {
+			return errors.New("external login successful but no access token received")
+		}
+
+		d.AccessToken = externalLoginResp.AccessToken
+		log.Debug("External login successful.")
+		return nil
+	}
+
+	// Original 123Pan login logic
 	var body base.Json
-	if utils.IsEmailFormat(d.Username) {
+	if utils.IsEmailFormat(d.Addition.Username) {
 		body = base.Json{
-			"mail":     d.Username,
-			"password": d.Password,
+			"mail":     d.Addition.Username,
+			"password": d.Addition.Password,
 			"type":     2,
 		}
 	} else {
 		body = base.Json{
-			"passport": d.Username,
-			"password": d.Password,
+			"passport": d.Addition.Username,
+			"password": d.Addition.Password,
 			"remember": true,
 		}
 	}
